@@ -159,6 +159,8 @@ def test_canary_changes_only_desktop_background_preserving_art_and_native_geomet
 
 
 def test_commit_icons_are_red_and_print_only_the_actual_seven_digit_prefix(generate):
+    import importlib.util
+
     stable = generate("v1.2.3")
     first = generate(commit="0123456" + "a" * 33)
     changed = generate(commit="abcdef9" + "a" * 33)
@@ -199,11 +201,30 @@ def test_commit_icons_are_red_and_print_only_the_actual_seven_digit_prefix(gener
         image = Image.open(first / "apps/desktop/assets" / name).convert("RGB")
         unbadged = Image.open(stable / "apps/desktop/assets" / name).convert("RGB")
         art = (0, 0, 0) if name == "icon.png" else (255, 255, 255)
+        # The badge follows the tile grid of its background, so a glyph cell's
+        # canvas point is the tile-local point pushed through that grid transform.
+        import importlib.util
+        import types
+
+        stub = sys.modules.get("resvg_py")
+        sys.modules["resvg_py"] = types.ModuleType("resvg_py")
+        try:
+            spec = importlib.util.spec_from_file_location("generate_icons", ROOT / "scripts/generate_icons.py")
+            assert spec is not None and spec.loader is not None
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+        finally:
+            if stub is None:
+                del sys.modules["resvg_py"]
+            else:
+                sys.modules["resvg_py"] = stub
+        inset, scale = module.BADGE_TILE_GRIDS["-linux-"]
         for digit, rows in enumerate(expected):
             judged = 0
             for y, row in enumerate(rows):
                 for x in range(5):
-                    point = (184 + (digit * 6 + x) * 16 + 8, 48 + y * 16 + 8)
+                    local = (184 + (digit * 6 + x) * 16 + 8, 48 + y * 16 + 8)
+                    point = (inset + local[0] * scale, inset + local[1] * scale)
                     if unbadged.getpixel(point) == art:
                         continue
                     judged += 1
